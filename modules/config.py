@@ -143,6 +143,12 @@ class ChannelConfig:
     tx_power_dbm: float = 20.0
     rx_gain_dbi: float = 0.0
     bandwidth_hz: float = 100e6
+    num_active_subcarriers: int = 128
+    nfft: int = 128
+    num_pilot_symbols: int = 1
+    subcarrier_spacing_hz: Optional[float] = None
+    num_taps: int = 8
+    nlos_tap_decay: float = 0.6
     noise_figure_db: float = 7.0
     rician_k_db: float = 10.0
     pathloss_ref_distance_m: float = 1.0
@@ -153,15 +159,44 @@ class ChannelConfig:
     def __post_init__(self) -> None:
         if self.bandwidth_hz <= 0:
             raise ValueError("bandwidth_hz must be positive.")
+        if self.num_active_subcarriers <= 0:
+            raise ValueError("num_active_subcarriers must be positive.")
+        if self.nfft < self.num_active_subcarriers:
+            raise ValueError("nfft must be at least num_active_subcarriers.")
+        if self.num_pilot_symbols <= 0:
+            raise ValueError("num_pilot_symbols must be positive.")
+        if self.subcarrier_spacing_hz is not None and self.subcarrier_spacing_hz <= 0:
+            raise ValueError("subcarrier_spacing_hz must be positive when provided.")
+        if self.num_taps <= 0:
+            raise ValueError("num_taps must be positive.")
+        if self.num_taps > self.nfft:
+            raise ValueError("num_taps must be no larger than nfft.")
+        if self.nlos_tap_decay <= 0:
+            raise ValueError("nlos_tap_decay must be positive.")
         if self.pathloss_ref_distance_m <= 0:
             raise ValueError("pathloss_ref_distance_m must be positive.")
         if self.pathloss_exponent_los <= 0:
             raise ValueError("pathloss_exponent_los must be positive.")
 
     @property
+    def effective_subcarrier_spacing_hz(self) -> float:
+        if self.subcarrier_spacing_hz is not None:
+            return self.subcarrier_spacing_hz
+        return self.bandwidth_hz / self.num_active_subcarriers
+
+    @property
+    def active_bandwidth_hz(self) -> float:
+        return self.num_active_subcarriers * self.effective_subcarrier_spacing_hz
+
+    @property
     def thermal_noise_dbm(self) -> float:
         # -174 dBm/Hz is the standard thermal noise density at room temperature.
         return -174.0 + 10.0 * math.log10(self.bandwidth_hz) + self.noise_figure_db
+
+    @property
+    def subcarrier_noise_dbm(self) -> float:
+        # Noise power for one OFDM pilot subcarrier: N0 * delta_f.
+        return -174.0 + 10.0 * math.log10(self.effective_subcarrier_spacing_hz) + self.noise_figure_db
 
     @property
     def rician_k_linear(self) -> float:
